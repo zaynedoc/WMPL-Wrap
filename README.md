@@ -2,7 +2,7 @@
 
 **A local listening-history companion for Windows Media Player Legacy**
 
-**Current version:** `v1.2.1` · [Releases](https://github.com/zaynedoc/WMPL-Wrap/releases) · [Privacy](PRIVACY.md) · [Terms](TERMS.md) · [MIT License](LICENSE)
+**Current version:** `v1.2.2` · [Releases](https://github.com/zaynedoc/WMPL-Wrap/releases) · [Privacy](PRIVACY.md) · [Terms](TERMS.md) · [MIT License](LICENSE)
 
 WMPL Wrap turns Windows Media Player's cumulative play counts into a personal
 listening history. It captures local snapshots, compares them over time, and presents
