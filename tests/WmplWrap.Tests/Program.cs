@@ -46,6 +46,8 @@ var graph = DashboardGraphBuilder.Build([first, second], new DashboardGraphOptio
     6,
     true));
 Assert(graph.Summary.Contains("includes first-seen WMP counts", StringComparison.Ordinal), "Graphs must disclose when first-seen counts are included.");
+Assert(graph.Series.Single().RatesPerDay[0] is null, "A baseline must not invent a rate of change.");
+Assert(Math.Abs(graph.Series.Single().RatesPerDay[1]!.Value - (11d / 3d)) < 0.001, "Hover data must divide an interval's change by its actual elapsed duration.");
 
 var navigation = new DashboardNavigationHistory(new DashboardNavigationState(DashboardPage.Overview, DataView.Tracks));
 navigation.Navigate(new DashboardNavigationState(DashboardPage.Graphs, DataView.Tracks));

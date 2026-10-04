@@ -217,6 +217,7 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
         _ => "Inactive"
     }}";
     public string DiscordFooterToolTip => $"{DiscordStatus}\n{DiscordNowPlaying}\nClick to open Discord Rich Presence settings";
+    public string GraphHelpText => "Chart points use the ending snapshot date. Hover a point for its observed interval, change, and average daily rate.";
     public ImageSource? AlbumArtPreview { get => _albumArtPreview; private set => Set(ref _albumArtPreview, value); }
     public string AlbumArtPreviewStatus { get => _albumArtPreviewStatus; private set => Set(ref _albumArtPreviewStatus, value); }
     public ISeries[] GraphSeries { get => _graphSeries; private set => Set(ref _graphSeries, value); }
@@ -689,7 +690,7 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
     {
         var color = GraphColors[colorIndex % GraphColors.Length];
         Func<LiveChartsCore.Kernel.ChartPoint, string> xTooltip = point => GraphTooltip(tooltips, point.Index);
-        Func<LiveChartsCore.Kernel.ChartPoint, string> yTooltip = point => FormatGraphValue(point.Coordinate.PrimaryValue, _graphMeasure);
+        Func<LiveChartsCore.Kernel.ChartPoint, string> yTooltip = point => FormatGraphTooltipValue(series, point.Index, point.Coordinate.PrimaryValue, _graphMeasure, _graphMode);
 
         if (_graphMode == DashboardGraphMode.Cumulative)
         {
@@ -735,6 +736,29 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
     private static string FormatGraphValue(double value, DashboardGraphMeasure measure) => measure == DashboardGraphMeasure.ListeningTime
         ? FormatDuration(value)
         : value.ToString("N0", CultureInfo.CurrentCulture);
+    private static string FormatGraphTooltipValue(DashboardGraphSeries series, int index, double displayedValue, DashboardGraphMeasure measure, DashboardGraphMode mode)
+    {
+        var unit = measure switch
+        {
+            DashboardGraphMeasure.ListeningTime => "listening time",
+            DashboardGraphMeasure.TracksListened => "distinct tracks",
+            _ => "listens"
+        };
+        var total = $"{FormatGraphValue(displayedValue, measure)} {unit}";
+        if (mode == DashboardGraphMode.Cumulative)
+        {
+            var change = index >= 0 && index < series.IntervalValues.Length ? series.IntervalValues[index] : 0;
+            var rate = index >= 0 && index < series.RatesPerDay.Length ? series.RatesPerDay[index] : null;
+            return rate is null
+                ? $"Total: {total}"
+                : $"Total: {total}\nChange: +{FormatGraphValue(change, measure)} {unit}\nRate: +{FormatGraphValue(rate.Value, measure)}/day";
+        }
+
+        var currentRate = index >= 0 && index < series.RatesPerDay.Length ? series.RatesPerDay[index] : null;
+        return currentRate is null
+            ? $"Recorded: {total}"
+            : $"Change: +{total}\nRate: +{FormatGraphValue(currentRate.Value, measure)}/day";
+    }
     private static T ParseGraphOption<T>(string value) where T : struct, Enum
     {
         var normalized = value.Replace(" ", "", StringComparison.Ordinal);

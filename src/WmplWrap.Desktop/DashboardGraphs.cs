@@ -21,7 +21,7 @@ internal sealed record DashboardGraphOptions(
     bool CombineRemainingSeries);
 
 internal sealed record DashboardGraph(string[] Labels, string[] Tooltips, DashboardGraphSeries[] Series, string Summary, string EmptyMessage);
-internal sealed record DashboardGraphSeries(string Name, double[] Values);
+internal sealed record DashboardGraphSeries(string Name, double[] Values, double[] IntervalValues, double?[] RatesPerDay);
 
 internal static class DashboardGraphBuilder
 {
@@ -61,9 +61,15 @@ internal static class DashboardGraphBuilder
             .ToArray();
 
         var categories = SelectCategories(entries, options);
-        var series = categories.Select(category => new DashboardGraphSeries(
-            category,
-            buckets.Select(bucket => ValueForBucket(entries, bucket.Key, category, options)).ToArray())).ToArray();
+        var series = categories.Select(category =>
+        {
+            var intervalValues = buckets.Select(bucket => ValueForBucket(entries, bucket, category, options)).ToArray();
+            return new DashboardGraphSeries(
+                category,
+                intervalValues,
+                intervalValues,
+                buckets.Select(bucket => RateForBucket(entries, bucket, category, options)).ToArray());
+        }).ToArray();
 
         if (options.Mode == DashboardGraphMode.Cumulative)
             series = series.Select(series => series with { Values = RunningTotal(series.Values) }).ToArray();
@@ -168,9 +174,13 @@ internal static class DashboardGraphBuilder
         var label = intervals.Count == 1
             ? $"Recorded {ToEastern(start):MMM d, yyyy h:mm tt} to {ToEastern(last.End):MMM d, yyyy h:mm tt}"
             : $"{intervals.Count:N0} snapshot intervals ending {ToEastern(first.End):MMM d} to {ToEastern(last.End):MMM d, yyyy}";
-        return intervals.Any(interval => interval.Rows.Any(row => row.FirstSeenListens > 0))
-            ? $"{label}\nIncludes first-seen WMP counts"
-            : label;
+        var notes = new List<string>();
+        if (intervals.Any(interval => interval.Rows.Any(row => row.FirstSeenListens > 0)))
+            notes.Add("Includes first-seen WMP counts");
+        var days = IntervalDays(intervals);
+        if (days > 0) notes.Add($"Observed over: {days:N2} elapsed days");
+
+        return notes.Count == 0 ? label : $"{label}\n{string.Join("\n", notes)}";
     }
 
     private static string[] SelectCategories(IReadOnlyList<GraphEntry> entries, DashboardGraphOptions options)
@@ -194,9 +204,26 @@ internal static class DashboardGraphBuilder
         return ranked.ToArray();
     }
 
-    private static double ValueForBucket(IReadOnlyList<GraphEntry> entries, DateTime bucket, string category, DashboardGraphOptions options)
+    private static double ValueForBucket(IReadOnlyList<GraphEntry> entries, GraphBucket bucket, string category, DashboardGraphOptions options)
     {
-        var bucketEntries = entries.Where(entry => entry.Bucket == bucket);
+        var bucketEntries = EntriesForBucket(entries, bucket, category, options);
+        return Aggregate(bucketEntries, options.Measure);
+    }
+
+    private static double? RateForBucket(IReadOnlyList<GraphEntry> entries, GraphBucket bucket, string category, DashboardGraphOptions options)
+    {
+        var comparableIntervals = bucket.Intervals.Where(interval => !interval.IsBaseline).ToArray();
+        var days = IntervalDays(comparableIntervals);
+        if (days <= 0) return null;
+
+        var comparableEntries = EntriesForBucket(entries, bucket, category, options)
+            .Where(entry => !entry.Interval.IsBaseline);
+        return Aggregate(comparableEntries, options.Measure) / days;
+    }
+
+    private static IEnumerable<GraphEntry> EntriesForBucket(IReadOnlyList<GraphEntry> entries, GraphBucket bucket, string category, DashboardGraphOptions options)
+    {
+        var bucketEntries = entries.Where(entry => entry.Bucket == bucket.Key);
         if (options.Grouping != DashboardGraphGrouping.Total)
         {
             var ranked = SelectCategories(entries, options).Where(name => name != "Other").ToHashSet(StringComparer.Ordinal);
@@ -204,8 +231,12 @@ internal static class DashboardGraphBuilder
                 ? bucketEntries.Where(entry => !ranked.Contains(entry.Category))
                 : bucketEntries.Where(entry => entry.Category == category);
         }
-        return Aggregate(bucketEntries, options.Measure);
+        return bucketEntries;
     }
+
+    private static double IntervalDays(IEnumerable<GraphInterval> intervals) => intervals
+        .Where(interval => interval.Start is not null)
+        .Sum(interval => Math.Max(0, (interval.End - interval.Start!.Value).TotalDays));
 
     private static double Aggregate(IEnumerable<GraphEntry> entries, DashboardGraphMeasure measure) => measure == DashboardGraphMeasure.TracksListened
         ? entries.Select(entry => entry.TrackId).Distinct(StringComparer.OrdinalIgnoreCase).Count()
